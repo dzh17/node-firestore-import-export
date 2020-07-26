@@ -49,6 +49,7 @@ const batchExecutor = async function <T>(promises: Promise<T>[], batchSize: numb
   const res: T[] = [];
   while (promises.length > 0) {
     const temp = await Promise.all(promises.splice(0, batchSize));
+    console.log('Batched', temp.length);
     res.push(...temp);
   }
   return res;

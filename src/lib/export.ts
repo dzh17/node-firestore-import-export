@@ -7,6 +7,7 @@ import {
 } from './firestore-helpers';
 import * as admin from 'firebase-admin';
 import {serializeSpecialTypes} from './helpers';
+import * as _ from 'lodash';
 
 const exportData = async (startingRef: admin.firestore.Firestore |
   FirebaseFirestore.DocumentReference |
@@ -30,44 +31,53 @@ const exportData = async (startingRef: admin.firestore.Firestore |
 };
 
 const getCollections = async (startingRef: admin.firestore.Firestore | FirebaseFirestore.DocumentReference, logs = false) => {
-  const collectionNames: Array<string> = [];
-  const collectionPromises: Array<Promise<any>> = [];
+  const collectionIds: Array<string> = [];
+  const collectionRefs: Array<FirebaseFirestore.CollectionReference> = [];
+   
   const collectionsSnapshot = await safelyGetCollectionsSnapshot(startingRef, logs);
   collectionsSnapshot.map((collectionRef: FirebaseFirestore.CollectionReference) => {
-    collectionNames.push(collectionRef.id);
-    collectionPromises.push(getDocuments(collectionRef, logs));
+    collectionIds.push(collectionRef.id);
+    collectionRefs.push(collectionRef);
   });
-  const results = await batchExecutor(collectionPromises);
+  
   const zipped: any = {};
-  results.map((res: any, idx: number) => {
-    zipped[collectionNames[idx]] = res;
-  });
+  const chunksOfCollectionRefs = _.chunk(collectionRefs, 10);
+  console.log('Entered to collection chunk of length', collectionRefs.length);
+  for (let j = 0; j < chunksOfCollectionRefs.length; j++) {
+    const chunk = chunksOfCollectionRefs[j];
+    const results = await batchExecutor(chunk.map(ref => getDocuments(ref, logs)));
+    results.map((res: any, idx: number) => { zipped[collectionIds[idx]] = res; });
+  }
   return zipped;
 };
+
+
+function getPromiseForDoc(doc: any) {
+  return new Promise(async (resolve) => {
+    const docSnapshot = await doc.get();
+    const docDetails: any = {};
+    if (docSnapshot.exists) {
+      docDetails[docSnapshot.id] = serializeSpecialTypes(docSnapshot.data());
+    } else {
+      docDetails[docSnapshot.id] = {};
+    }
+    docDetails[docSnapshot.id]['__collections__'] = await getCollections(docSnapshot.ref, true);
+    resolve(docDetails);
+  })
+}
 
 const getDocuments = async (collectionRef: FirebaseFirestore.CollectionReference, logs = false) => {
   logs && console.log(`Retrieving documents from ${collectionRef.path}`);
   const results: any = {};
-  const documentPromises: Array<Promise<object>> = [];
   const allDocuments = await safelyGetDocumentReferences(collectionRef, logs);
-  allDocuments.forEach((doc) => {
-
-    documentPromises.push(new Promise(async (resolve) => {
-      const docSnapshot = await doc.get();
-      const docDetails: any = {};
-      if (docSnapshot.exists) {
-        docDetails[docSnapshot.id] = serializeSpecialTypes(docSnapshot.data());
-      } else {
-        docDetails[docSnapshot.id] = {};
-      }
-      docDetails[docSnapshot.id]['__collections__'] = await getCollections(docSnapshot.ref, logs);
-      resolve(docDetails);
-    }));
-  });
-  (await batchExecutor(documentPromises))
-    .forEach((res: any) => {
+  const documentChunks = _.chunk(allDocuments, 10);
+  for(let i = 0; i < documentChunks.length; i++) {
+    const documentChunk = documentChunks[i];
+    const batchResults = await batchExecutor(documentChunk.map(doc =>getPromiseForDoc(doc)));
+    batchResults.forEach((res: any) => {
       Object.keys(res).map(key => (<any>results)[key] = res[key]);
     });
+  }
   return results;
 };
 
