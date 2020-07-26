@@ -35,5 +35,3 @@ node_modules/
 !tsconfig.json
 !tests/*.json
 
-# Dist
-dist/**
