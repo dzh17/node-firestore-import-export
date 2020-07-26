@@ -64,11 +64,26 @@ const getCollections = (startingRef, logs = false) => __awaiter(void 0, void 0, 
     console.log('Entered to collection chunk of length', collectionRefs.length);
     for (let j = 0; j < chunksOfCollectionRefs.length; j++) {
         const chunk = chunksOfCollectionRefs[j];
-        const results = yield firestore_helpers_1.batchExecutor(chunk.map(ref => getDocuments(ref, logs)));
+        let results;
+        results = yield executeBatchOnChunk(chunk);
         results.map((res, idx) => { zipped[collectionIds[idx]] = res; });
     }
     return zipped;
 });
+function executeBatchOnChunk(chunk) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            console.log('Chunk request');
+            const results = yield firestore_helpers_1.batchExecutor(chunk.map((ref) => getDocuments(ref, true)));
+            return results;
+        }
+        catch (_a) {
+            console.log('Chunk error');
+            yield firestore_helpers_1.sleep(2000);
+            executeBatchOnChunk(chunk);
+        }
+    });
+}
 function getPromiseForDoc(doc) {
     return new Promise((resolve) => __awaiter(this, void 0, void 0, function* () {
         const docSnapshot = yield doc.get();
