@@ -4,6 +4,7 @@ import {
   isRootOfDatabase,
   safelyGetCollectionsSnapshot,
   safelyGetDocumentReferences,
+  sleep,
 } from './firestore-helpers';
 import * as admin from 'firebase-admin';
 import {serializeSpecialTypes} from './helpers';
@@ -45,12 +46,24 @@ const getCollections = async (startingRef: admin.firestore.Firestore | FirebaseF
   console.log('Entered to collection chunk of length', collectionRefs.length);
   for (let j = 0; j < chunksOfCollectionRefs.length; j++) {
     const chunk = chunksOfCollectionRefs[j];
-    const results = await batchExecutor(chunk.map(ref => getDocuments(ref, logs)));
+    let results: any;
+    results = await executeBatchOnChunk(chunk);
     results.map((res: any, idx: number) => { zipped[collectionIds[idx]] = res; });
   }
   return zipped;
 };
 
+async function executeBatchOnChunk(chunk: any) {
+  try {
+    console.log('Chunk request');
+    const results = await batchExecutor(chunk.map((ref: any) => getDocuments(ref, true)));
+    return results;
+  } catch {
+    console.log('Chunk error');
+    await sleep(2000);
+    executeBatchOnChunk(chunk);
+  }
+}
 
 function getPromiseForDoc(doc: any) {
   return new Promise(async (resolve) => {
